@@ -1,0 +1,390 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Private user account state and active family pointer without PII.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "displayName": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "activeFamilyId": { "type": "string", "minLength": 0, "maxLength": 128 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "displayName", "activeFamilyId", "createdAt", "updatedAt"]
+    },
+    "Family": {
+      "title": "Family",
+      "description": "Root workspace for a family household.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "name": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "currency": { "type": "string", "enum": ["RUB", "USD", "EUR", "UAH"] },
+        "inviteCode": { "type": "string", "minLength": 4, "maxLength": 32, "pattern": "^[A-Z0-9\\-]+$" },
+        "ownerId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "name", "currency", "inviteCode", "ownerId", "createdAt", "updatedAt"]
+    },
+    "FamilyInvite": {
+      "title": "FamilyInvite",
+      "description": "Exact-code invite lookup document for joining a family.",
+      "type": "object",
+      "properties": {
+        "code": { "type": "string", "minLength": 4, "maxLength": 32, "pattern": "^[A-Z0-9\\-]+$" },
+        "familyId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "familyName": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "ownerId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["code", "familyId", "familyName", "ownerId", "createdAt"]
+    },
+    "FamilyMemberAccount": {
+      "title": "FamilyMemberAccount",
+      "description": "Authenticated user membership record inside a family.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "familyId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "displayName": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "role": { "type": "string", "enum": ["owner", "member"] },
+        "familyRole": {
+          "type": "string",
+          "enum": ["Создатель", "Мама", "Папа", "Ребёнок", "Бабушка", "Дедушка", "Родственник", "Участник"]
+        },
+        "inviteCode": { "type": "string", "minLength": 4, "maxLength": 32, "pattern": "^[A-Z0-9\\-]+$" },
+        "joinedAt": { "type": "string", "format": "date-time" },
+        "lastReadMessagesAt": { "type": "string", "format": "date-time" },
+        "lastReadEventsAt": { "type": "string", "format": "date-time" },
+        "lastReadTasksAt": { "type": "string", "format": "date-time" },
+        "lastReadBoardAt": { "type": "string", "format": "date-time" },
+        "lastReadNotificationsAt": { "type": "string", "format": "date-time" },
+        "pushEnabled": { "type": "boolean" }
+      },
+      "required": ["uid", "familyId", "displayName", "role", "inviteCode", "joinedAt"]
+    },
+    "FamilyNotification": {
+      "title": "FamilyNotification",
+      "description": "Immutable activity notification for new messages, bulletin board posts, calendar changes, paid child tasks, and AI app updates.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "familyId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "kind": { "type": "string", "enum": ["message", "event", "task", "ai", "board"] },
+        "action": {
+          "type": "string",
+          "enum": ["created", "completed", "reopened", "deleted", "accepted", "declined", "submitted", "approved", "rejected", "closed", "updated"]
+        },
+        "title": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "body": { "type": "string", "minLength": 0, "maxLength": 240 },
+        "targetSection": { "type": "string", "enum": ["overview", "board", "communication", "family", "tasks", "money", "home"] },
+        "actorUid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "actorName": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "familyId", "kind", "action", "title", "body", "targetSection", "actorUid", "actorName", "createdAt"]
+    },
+    "FamilyPersonProfile": {
+      "title": "FamilyPersonProfile",
+      "description": "Family roster card (adults, children, relatives, pets).",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "familyId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "name": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "relation": { "type": "string", "enum": ["Взрослый", "Ребёнок", "Родственник", "Питомец"] },
+        "birthDate": { "type": "string", "minLength": 0, "maxLength": 20 },
+        "note": { "type": "string", "minLength": 0, "maxLength": 240 },
+        "linkedUid": { "type": "string", "minLength": 0, "maxLength": 128 },
+        "createdBy": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "familyId", "name", "relation", "birthDate", "note", "linkedUid", "createdBy", "createdAt", "updatedAt"]
+    },
+    "FamilyEvent": {
+      "title": "FamilyEvent",
+      "description": "Shared family calendar event or milestone.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "familyId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "title": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "date": { "type": "string", "minLength": 10, "maxLength": 20 },
+        "time": { "type": "string", "minLength": 0, "maxLength": 10 },
+        "category": { "type": "string", "enum": ["Праздник", "Здоровье", "Школа и сад", "Семейное дело", "Другое"] },
+        "assigneeName": { "type": "string", "minLength": 0, "maxLength": 80 },
+        "completed": { "type": "boolean" },
+        "createdBy": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "familyId", "title", "date", "time", "category", "assigneeName", "completed", "createdBy", "createdAt", "updatedAt"]
+    },
+    "FamilyMessage": {
+      "title": "FamilyMessage",
+      "description": "Family communication message or pinned announcement.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "familyId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "text": { "type": "string", "minLength": 1, "maxLength": 1000 },
+        "topic": { "type": "string", "enum": ["Общее", "Покупки", "Планы", "Важное"] },
+        "pinned": { "type": "boolean" },
+        "imageDataUrl": { "type": "string", "minLength": 0, "maxLength": 300000 },
+        "authorUid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "authorName": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "familyId", "text", "topic", "pinned", "authorUid", "authorName", "createdAt", "updatedAt"]
+    },
+    "MoneyTransaction": {
+      "title": "MoneyTransaction",
+      "description": "Family budget income or expense ledger entry.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "familyId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "type": { "type": "string", "enum": ["income", "expense"] },
+        "amount": { "type": "number" },
+        "category": { "type": "string", "enum": ["Продукты", "Дом и ЖКУ", "Транспорт", "Дети", "Здоровье", "Досуг", "Одежда", "Зарплата", "Подработка", "Накопления", "Прочее"] },
+        "title": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "date": { "type": "string", "minLength": 10, "maxLength": 20 },
+        "authorUid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "authorName": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "familyId", "type", "amount", "category", "title", "date", "authorUid", "authorName", "createdAt", "updatedAt"]
+    },
+    "SavingsGoal": {
+      "title": "SavingsGoal",
+      "description": "Shared family savings goal.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "familyId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "title": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "targetAmount": { "type": "number" },
+        "currentAmount": { "type": "number" },
+        "deadline": { "type": "string", "minLength": 0, "maxLength": 20 },
+        "status": { "type": "string", "enum": ["active", "completed"] },
+        "createdBy": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "familyId", "title", "targetAmount", "currentAmount", "deadline", "status", "createdBy", "createdAt", "updatedAt"]
+    },
+    "ShoppingItem": {
+      "title": "ShoppingItem",
+      "description": "Shared household shopping list item.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "familyId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "name": { "type": "string", "minLength": 1, "maxLength": 100 },
+        "quantity": { "type": "string", "minLength": 0, "maxLength": 40 },
+        "category": { "type": "string", "enum": ["Продукты", "Быт", "Аптека", "Другое"] },
+        "checked": { "type": "boolean" },
+        "addedByUid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "addedByName": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "familyId", "name", "quantity", "category", "checked", "addedByUid", "addedByName", "createdAt", "updatedAt"]
+    },
+    "HomeTask": {
+      "title": "HomeTask",
+      "description": "Household chore, maintenance item, or utility bill.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "familyId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "title": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "area": { "type": "string", "enum": ["Уборка", "Ремонт и быт", "ЖКУ и счета", "Питомцы", "Другое"] },
+        "assigneeName": { "type": "string", "minLength": 0, "maxLength": 80 },
+        "dueDate": { "type": "string", "minLength": 0, "maxLength": 20 },
+        "recurrence": { "type": "string", "enum": ["Разовое", "Еженедельно", "Ежемесячно"] },
+        "status": { "type": "string", "enum": ["todo", "done"] },
+        "amount": { "type": "number" },
+        "createdBy": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "familyId", "title", "area", "assigneeName", "dueDate", "recurrence", "status", "amount", "createdBy", "createdAt", "updatedAt"]
+    },
+    "ChildTask": {
+      "title": "ChildTask",
+      "description": "Paid task in UAH assigned by Mom, Dad, or Group Creator with child accept/decline, photo proof, review, and closure workflow.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "familyId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "title": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "description": { "type": "string", "minLength": 0, "maxLength": 500 },
+        "rewardUah": { "type": "number" },
+        "assigneeUid": { "type": "string", "minLength": 0, "maxLength": 128 },
+        "assigneeName": { "type": "string", "minLength": 0, "maxLength": 80 },
+        "status": {
+          "type": "string",
+          "enum": ["pending", "declined", "in_progress", "submitted", "needs_fix", "approved", "closed"]
+        },
+        "proofMessage": { "type": "string", "minLength": 0, "maxLength": 500 },
+        "proofPhotoDataUrl": { "type": "string", "minLength": 0, "maxLength": 300000 },
+        "taskPhotoDataUrl": { "type": "string", "minLength": 0, "maxLength": 300000 },
+        "parentFeedback": { "type": "string", "minLength": 0, "maxLength": 240 },
+        "feedbackPhotoDataUrl": { "type": "string", "minLength": 0, "maxLength": 300000 },
+        "respondedByUid": { "type": "string", "minLength": 0, "maxLength": 128 },
+        "respondedByName": { "type": "string", "minLength": 0, "maxLength": 80 },
+        "createdBy": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "createdByName": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" },
+        "approvedAt": { "type": "string", "format": "date-time" },
+        "closedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "id",
+        "familyId",
+        "title",
+        "description",
+        "rewardUah",
+        "assigneeUid",
+        "assigneeName",
+        "status",
+        "proofMessage",
+        "proofPhotoDataUrl",
+        "parentFeedback",
+        "respondedByUid",
+        "respondedByName",
+        "createdBy",
+        "createdByName",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "AppAppearanceSettings": {
+      "title": "AppAppearanceSettings",
+      "description": "Shared live app theme, branding, labels, and announcements editable via AI for all family members.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "enum": ["appearance"] },
+        "familyId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "brandName": { "type": "string", "minLength": 1, "maxLength": 60 },
+        "accentTheme": { "type": "string", "enum": ["teal", "indigo", "emerald", "amber", "rose", "slate", "newyear"] },
+        "surfaceMode": { "type": "string", "enum": ["light", "warm", "slate", "snow"] },
+        "bannerTitle": { "type": "string", "minLength": 0, "maxLength": 120 },
+        "bannerSubtitle": { "type": "string", "minLength": 0, "maxLength": 240 },
+        "liveAnnouncement": { "type": "string", "minLength": 0, "maxLength": 240 },
+        "hiddenSections": { "type": "array" },
+        "sectionLabels": { "type": "object" },
+        "customNotes": { "type": "array" },
+        "updatedByUid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "updatedByName": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": [
+        "id",
+        "familyId",
+        "brandName",
+        "accentTheme",
+        "surfaceMode",
+        "bannerTitle",
+        "bannerSubtitle",
+        "liveAnnouncement",
+        "hiddenSections",
+        "sectionLabels",
+        "customNotes",
+        "updatedByUid",
+        "updatedByName",
+        "updatedAt"
+      ]
+    },
+    "FamilyAnnouncement": {
+      "title": "FamilyAnnouncement",
+      "description": "Family bulletin board notice with title, body, category, optional expiration date, pinned and archive flags.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "familyId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "title": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "body": { "type": "string", "minLength": 1, "maxLength": 1000 },
+        "category": { "type": "string", "enum": ["Важное", "Напоминание", "Покупки и быт", "Праздник", "Отдам / Найду", "Другое"] },
+        "pinned": { "type": "boolean" },
+        "status": { "type": "string", "enum": ["active", "archived"] },
+        "expiresAt": { "type": "string", "minLength": 0, "maxLength": 20 },
+        "imageDataUrl": { "type": "string", "minLength": 0, "maxLength": 300000 },
+        "authorUid": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "authorName": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "familyId", "title", "body", "category", "pinned", "status", "expiresAt", "authorUid", "authorName", "createdAt", "updatedAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserProfile" },
+      "description": "Owner-only user profile and active family ID."
+    },
+    "/families/{familyId}": {
+      "schema": { "$ref": "#/entities/Family" },
+      "description": "Family workspace root document."
+    },
+    "/familyInvites/{inviteCode}": {
+      "schema": { "$ref": "#/entities/FamilyInvite" },
+      "description": "Exact-lookup invite documents for joining a family."
+    },
+    "/families/{familyId}/members/{memberUid}": {
+      "schema": { "$ref": "#/entities/FamilyMemberAccount" },
+      "description": "Authenticated user accounts belonging to the family."
+    },
+    "/families/{familyId}/notifications/{notificationId}": {
+      "schema": { "$ref": "#/entities/FamilyNotification" },
+      "description": "Immutable family activity notifications for new messages, bulletin board posts, calendar updates, tasks, and AI edits."
+    },
+    "/families/{familyId}/announcements/{announcementId}": {
+      "schema": { "$ref": "#/entities/FamilyAnnouncement" },
+      "description": "Shared family bulletin board notices and reminders."
+    },
+    "/families/{familyId}/profiles/{profileId}": {
+      "schema": { "$ref": "#/entities/FamilyPersonProfile" },
+      "description": "Family members roster cards."
+    },
+    "/families/{familyId}/events/{eventId}": {
+      "schema": { "$ref": "#/entities/FamilyEvent" },
+      "description": "Family calendar events."
+    },
+    "/families/{familyId}/messages/{messageId}": {
+      "schema": { "$ref": "#/entities/FamilyMessage" },
+      "description": "Family chat messages and pinned notes."
+    },
+    "/families/{familyId}/transactions/{transactionId}": {
+      "schema": { "$ref": "#/entities/MoneyTransaction" },
+      "description": "Family budget income and expense records."
+    },
+    "/families/{familyId}/goals/{goalId}": {
+      "schema": { "$ref": "#/entities/SavingsGoal" },
+      "description": "Family savings goals."
+    },
+    "/families/{familyId}/shopping/{itemId}": {
+      "schema": { "$ref": "#/entities/ShoppingItem" },
+      "description": "Family shared shopping list items."
+    },
+    "/families/{familyId}/tasks/{taskId}": {
+      "schema": { "$ref": "#/entities/HomeTask" },
+      "description": "Family household tasks, chores, and utility bills."
+    },
+    "/families/{familyId}/childTasks/{taskId}": {
+      "schema": { "$ref": "#/entities/ChildTask" },
+      "description": "Paid tasks in UAH assigned by Mom, Dad, or Group Creator."
+    },
+    "/families/{familyId}/settings/{settingId}": {
+      "schema": { "$ref": "#/entities/AppAppearanceSettings" },
+      "description": "Shared live app appearance and customization state updated in real time for all family members."
+    }
+  }
+}

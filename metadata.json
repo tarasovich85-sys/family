@@ -1,0 +1,6 @@
+{
+  "name": "Очаг — Семья, Общение, Деньги и Дом",
+  "description": "Единое семейное пространство для общения, общего бюджета, календаря событий и домашних дел.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

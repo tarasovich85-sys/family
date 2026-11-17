@@ -1,0 +1,888 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Pillar 4.1: Default-deny global safety net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // --- Global Hardened Helpers ---
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isEmailVerified() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isValidInviteCode(code) {
+      return code is string && code.size() >= 4 && code.size() <= 32 && code.matches('^[A-Z0-9\\-]+$');
+    }
+
+    function isValidImageDataUrl(val) {
+      return val is string &&
+        val.size() <= 300000 &&
+        (val == '' || val.matches('^data:image/(jpeg|jpg|png|webp);base64,[A-Za-z0-9+/=]+$'));
+    }
+
+    function isOwner(uid) {
+      return isSignedIn() && request.auth.uid == uid;
+    }
+
+    function isFamilyMember(familyId) {
+      return isSignedIn() &&
+        exists(/databases/$(database)/documents/families/$(familyId)/members/$(request.auth.uid));
+    }
+
+    function isFamilyOwner(familyId) {
+      return isSignedIn() &&
+        exists(/databases/$(database)/documents/families/$(familyId)/members/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/families/$(familyId)/members/$(request.auth.uid)).data.role == 'owner';
+    }
+
+    function isTaskManager(familyId) {
+      return isSignedIn() &&
+        exists(/databases/$(database)/documents/families/$(familyId)/members/$(request.auth.uid)) &&
+        (
+          get(/databases/$(database)/documents/families/$(familyId)/members/$(request.auth.uid)).data.role == 'owner' ||
+          (
+            'familyRole' in get(/databases/$(database)/documents/families/$(familyId)/members/$(request.auth.uid)).data &&
+            get(/databases/$(database)/documents/families/$(familyId)/members/$(request.auth.uid)).data.familyRole in ['Создатель', 'Мама', 'Папа']
+          )
+        );
+    }
+
+    // --- Entity Validation Blueprints ---
+    function isValidUserProfile(data) {
+      return data.keys().hasAll(['uid', 'displayName', 'activeFamilyId', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['uid', 'displayName', 'activeFamilyId', 'createdAt', 'updatedAt']) &&
+        isValidId(data.uid) &&
+        data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 80 &&
+        data.activeFamilyId is string && data.activeFamilyId.size() <= 128 &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidFamily(data) {
+      return data.keys().hasAll(['id', 'name', 'currency', 'inviteCode', 'ownerId', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['id', 'name', 'currency', 'inviteCode', 'ownerId', 'createdAt', 'updatedAt']) &&
+        isValidId(data.id) &&
+        data.name is string && data.name.size() >= 1 && data.name.size() <= 80 &&
+        data.currency in ['RUB', 'USD', 'EUR', 'UAH'] &&
+        isValidInviteCode(data.inviteCode) &&
+        isValidId(data.ownerId) &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidFamilyInvite(data) {
+      return data.keys().hasAll(['code', 'familyId', 'familyName', 'ownerId', 'createdAt']) &&
+        data.keys().hasOnly(['code', 'familyId', 'familyName', 'ownerId', 'createdAt']) &&
+        isValidInviteCode(data.code) &&
+        isValidId(data.familyId) &&
+        data.familyName is string && data.familyName.size() >= 1 && data.familyName.size() <= 80 &&
+        isValidId(data.ownerId) &&
+        data.createdAt is timestamp;
+    }
+
+    function isValidMemberAccount(data) {
+      return data.keys().hasAll(['uid', 'familyId', 'displayName', 'role', 'inviteCode', 'joinedAt']) &&
+        data.keys().hasOnly(['uid', 'familyId', 'displayName', 'role', 'familyRole', 'inviteCode', 'joinedAt', 'lastReadMessagesAt', 'lastReadEventsAt', 'lastReadTasksAt', 'lastReadBoardAt', 'lastReadNotificationsAt', 'pushEnabled']) &&
+        isValidId(data.uid) &&
+        isValidId(data.familyId) &&
+        data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 80 &&
+        data.role in ['owner', 'member'] &&
+        (!('familyRole' in data) || data.familyRole in ['Создатель', 'Мама', 'Папа', 'Ребёнок', 'Бабушка', 'Дедушка', 'Родственник', 'Участник']) &&
+        isValidInviteCode(data.inviteCode) &&
+        data.joinedAt is timestamp &&
+        (!('lastReadMessagesAt' in data) || data.lastReadMessagesAt is timestamp) &&
+        (!('lastReadEventsAt' in data) || data.lastReadEventsAt is timestamp) &&
+        (!('lastReadTasksAt' in data) || data.lastReadTasksAt is timestamp) &&
+        (!('lastReadBoardAt' in data) || data.lastReadBoardAt is timestamp) &&
+        (!('lastReadNotificationsAt' in data) || data.lastReadNotificationsAt is timestamp) &&
+        (!('pushEnabled' in data) || data.pushEnabled is bool);
+    }
+
+    function isValidNotification(data) {
+      return data.keys().hasAll(['id', 'familyId', 'kind', 'action', 'title', 'body', 'targetSection', 'actorUid', 'actorName', 'createdAt']) &&
+        data.keys().hasOnly(['id', 'familyId', 'kind', 'action', 'title', 'body', 'targetSection', 'actorUid', 'actorName', 'createdAt']) &&
+        isValidId(data.id) &&
+        isValidId(data.familyId) &&
+        data.kind in ['message', 'event', 'task', 'ai', 'board'] &&
+        data.action in ['created', 'completed', 'reopened', 'deleted', 'accepted', 'declined', 'submitted', 'approved', 'rejected', 'closed', 'updated'] &&
+        data.title is string && data.title.size() >= 1 && data.title.size() <= 120 &&
+        data.body is string && data.body.size() <= 240 &&
+        data.targetSection in ['overview', 'board', 'communication', 'family', 'tasks', 'money', 'home'] &&
+        isValidId(data.actorUid) &&
+        data.actorName is string && data.actorName.size() >= 1 && data.actorName.size() <= 80 &&
+        data.createdAt is timestamp;
+    }
+
+    function isValidPersonProfile(data) {
+      return data.keys().hasAll(['id', 'familyId', 'name', 'relation', 'birthDate', 'note', 'linkedUid', 'createdBy', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['id', 'familyId', 'name', 'relation', 'birthDate', 'note', 'linkedUid', 'createdBy', 'createdAt', 'updatedAt']) &&
+        isValidId(data.id) &&
+        isValidId(data.familyId) &&
+        data.name is string && data.name.size() >= 1 && data.name.size() <= 80 &&
+        data.relation in ['Взрослый', 'Ребёнок', 'Родственник', 'Питомец'] &&
+        data.birthDate is string && data.birthDate.size() <= 20 &&
+        data.note is string && data.note.size() <= 240 &&
+        data.linkedUid is string && data.linkedUid.size() <= 128 &&
+        isValidId(data.createdBy) &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidFamilyEvent(data) {
+      return data.keys().hasAll(['id', 'familyId', 'title', 'date', 'time', 'category', 'assigneeName', 'completed', 'createdBy', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['id', 'familyId', 'title', 'date', 'time', 'category', 'assigneeName', 'completed', 'createdBy', 'createdAt', 'updatedAt']) &&
+        isValidId(data.id) &&
+        isValidId(data.familyId) &&
+        data.title is string && data.title.size() >= 1 && data.title.size() <= 120 &&
+        data.date is string && data.date.size() >= 10 && data.date.size() <= 20 &&
+        data.time is string && data.time.size() <= 10 &&
+        data.category in ['Праздник', 'Здоровье', 'Школа и сад', 'Семейное дело', 'Другое'] &&
+        data.assigneeName is string && data.assigneeName.size() <= 80 &&
+        data.completed is bool &&
+        isValidId(data.createdBy) &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidMessage(data) {
+      return data.keys().hasAll(['id', 'familyId', 'text', 'topic', 'pinned', 'authorUid', 'authorName', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['id', 'familyId', 'text', 'topic', 'pinned', 'imageDataUrl', 'authorUid', 'authorName', 'createdAt', 'updatedAt']) &&
+        isValidId(data.id) &&
+        isValidId(data.familyId) &&
+        data.text is string && data.text.size() >= 1 && data.text.size() <= 1000 &&
+        data.topic in ['Общее', 'Покупки', 'Планы', 'Важное'] &&
+        data.pinned is bool &&
+        (!('imageDataUrl' in data) || isValidImageDataUrl(data.imageDataUrl)) &&
+        isValidId(data.authorUid) &&
+        data.authorName is string && data.authorName.size() >= 1 && data.authorName.size() <= 80 &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidTransaction(data) {
+      return data.keys().hasAll(['id', 'familyId', 'type', 'amount', 'category', 'title', 'date', 'authorUid', 'authorName', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['id', 'familyId', 'type', 'amount', 'category', 'title', 'date', 'authorUid', 'authorName', 'createdAt', 'updatedAt']) &&
+        isValidId(data.id) &&
+        isValidId(data.familyId) &&
+        data.type in ['income', 'expense'] &&
+        data.amount is number && data.amount > 0 && data.amount <= 1000000000 &&
+        data.category in ['Продукты', 'Дом и ЖКУ', 'Транспорт', 'Дети', 'Здоровье', 'Досуг', 'Одежда', 'Зарплата', 'Подработка', 'Накопления', 'Прочее'] &&
+        data.title is string && data.title.size() >= 1 && data.title.size() <= 120 &&
+        data.date is string && data.date.size() >= 10 && data.date.size() <= 20 &&
+        isValidId(data.authorUid) &&
+        data.authorName is string && data.authorName.size() >= 1 && data.authorName.size() <= 80 &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidGoal(data) {
+      return data.keys().hasAll(['id', 'familyId', 'title', 'targetAmount', 'currentAmount', 'deadline', 'status', 'createdBy', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['id', 'familyId', 'title', 'targetAmount', 'currentAmount', 'deadline', 'status', 'createdBy', 'createdAt', 'updatedAt']) &&
+        isValidId(data.id) &&
+        isValidId(data.familyId) &&
+        data.title is string && data.title.size() >= 1 && data.title.size() <= 100 &&
+        data.targetAmount is number && data.targetAmount > 0 && data.targetAmount <= 1000000000 &&
+        data.currentAmount is number && data.currentAmount >= 0 && data.currentAmount <= 1000000000 &&
+        data.deadline is string && data.deadline.size() <= 20 &&
+        data.status in ['active', 'completed'] &&
+        isValidId(data.createdBy) &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidShoppingItem(data) {
+      return data.keys().hasAll(['id', 'familyId', 'name', 'quantity', 'category', 'checked', 'addedByUid', 'addedByName', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['id', 'familyId', 'name', 'quantity', 'category', 'checked', 'addedByUid', 'addedByName', 'createdAt', 'updatedAt']) &&
+        isValidId(data.id) &&
+        isValidId(data.familyId) &&
+        data.name is string && data.name.size() >= 1 && data.name.size() <= 100 &&
+        data.quantity is string && data.quantity.size() <= 40 &&
+        data.category in ['Продукты', 'Быт', 'Аптека', 'Другое'] &&
+        data.checked is bool &&
+        isValidId(data.addedByUid) &&
+        data.addedByName is string && data.addedByName.size() >= 1 && data.addedByName.size() <= 80 &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidHomeTask(data) {
+      return data.keys().hasAll(['id', 'familyId', 'title', 'area', 'assigneeName', 'dueDate', 'recurrence', 'status', 'amount', 'createdBy', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['id', 'familyId', 'title', 'area', 'assigneeName', 'dueDate', 'recurrence', 'status', 'amount', 'createdBy', 'createdAt', 'updatedAt']) &&
+        isValidId(data.id) &&
+        isValidId(data.familyId) &&
+        data.title is string && data.title.size() >= 1 && data.title.size() <= 120 &&
+        data.area in ['Уборка', 'Ремонт и быт', 'ЖКУ и счета', 'Питомцы', 'Другое'] &&
+        data.assigneeName is string && data.assigneeName.size() <= 80 &&
+        data.dueDate is string && data.dueDate.size() <= 20 &&
+        data.recurrence in ['Разовое', 'Еженедельно', 'Ежемесячно'] &&
+        data.status in ['todo', 'done'] &&
+        data.amount is number && data.amount >= 0 && data.amount <= 1000000000 &&
+        isValidId(data.createdBy) &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidChildTask(data) {
+      return data.keys().hasAll([
+          'id', 'familyId', 'title', 'description', 'rewardUah',
+          'assigneeUid', 'assigneeName', 'status', 'proofMessage',
+          'proofPhotoDataUrl', 'parentFeedback', 'respondedByUid',
+          'respondedByName', 'createdBy', 'createdByName', 'createdAt', 'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'id', 'familyId', 'title', 'description', 'rewardUah',
+          'assigneeUid', 'assigneeName', 'status', 'proofMessage',
+          'proofPhotoDataUrl', 'taskPhotoDataUrl', 'parentFeedback',
+          'feedbackPhotoDataUrl', 'respondedByUid',
+          'respondedByName', 'createdBy', 'createdByName', 'createdAt',
+          'updatedAt', 'approvedAt', 'closedAt'
+        ]) &&
+        isValidId(data.id) &&
+        isValidId(data.familyId) &&
+        data.title is string && data.title.size() >= 1 && data.title.size() <= 120 &&
+        data.description is string && data.description.size() <= 500 &&
+        data.rewardUah is number && data.rewardUah > 0 && data.rewardUah <= 1000000 &&
+        data.assigneeUid is string && data.assigneeUid.size() <= 128 &&
+        data.assigneeName is string && data.assigneeName.size() <= 80 &&
+        data.status in ['pending', 'declined', 'in_progress', 'submitted', 'needs_fix', 'approved', 'closed'] &&
+        data.proofMessage is string && data.proofMessage.size() <= 500 &&
+        isValidImageDataUrl(data.proofPhotoDataUrl) &&
+        (!('taskPhotoDataUrl' in data) || isValidImageDataUrl(data.taskPhotoDataUrl)) &&
+        data.parentFeedback is string && data.parentFeedback.size() <= 240 &&
+        (!('feedbackPhotoDataUrl' in data) || isValidImageDataUrl(data.feedbackPhotoDataUrl)) &&
+        data.respondedByUid is string && data.respondedByUid.size() <= 128 &&
+        data.respondedByName is string && data.respondedByName.size() <= 80 &&
+        isValidId(data.createdBy) &&
+        data.createdByName is string && data.createdByName.size() >= 1 && data.createdByName.size() <= 80 &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp &&
+        (!('approvedAt' in data) || data.approvedAt is timestamp) &&
+        (!('closedAt' in data) || data.closedAt is timestamp);
+    }
+
+    function isValidAppAppearance(data) {
+      return data.keys().hasAll([
+          'id', 'familyId', 'brandName', 'accentTheme', 'surfaceMode',
+          'bannerTitle', 'bannerSubtitle', 'liveAnnouncement',
+          'hiddenSections', 'sectionLabels', 'customNotes',
+          'updatedByUid', 'updatedByName', 'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'id', 'familyId', 'brandName', 'accentTheme', 'surfaceMode',
+          'bannerTitle', 'bannerSubtitle', 'liveAnnouncement',
+          'hiddenSections', 'sectionLabels', 'customNotes',
+          'updatedByUid', 'updatedByName', 'updatedAt'
+        ]) &&
+        data.id == 'appearance' &&
+        isValidId(data.familyId) &&
+        data.brandName is string && data.brandName.size() >= 1 && data.brandName.size() <= 60 &&
+        data.accentTheme in ['teal', 'indigo', 'emerald', 'amber', 'rose', 'slate', 'newyear'] &&
+        data.surfaceMode in ['light', 'warm', 'slate', 'snow'] &&
+        data.bannerTitle is string && data.bannerTitle.size() <= 120 &&
+        data.bannerSubtitle is string && data.bannerSubtitle.size() <= 240 &&
+        data.liveAnnouncement is string && data.liveAnnouncement.size() <= 240 &&
+        data.hiddenSections is list &&
+        data.hiddenSections.size() <= 6 &&
+        data.hiddenSections.hasOnly(['board', 'family', 'tasks', 'communication', 'money', 'home']) &&
+        data.sectionLabels is map &&
+        data.sectionLabels.keys().hasOnly(['overview', 'board', 'family', 'tasks', 'communication', 'money', 'home']) &&
+        (!('overview' in data.sectionLabels) || (data.sectionLabels.overview is string && data.sectionLabels.overview.size() <= 40)) &&
+        (!('board' in data.sectionLabels) || (data.sectionLabels.board is string && data.sectionLabels.board.size() <= 40)) &&
+        (!('family' in data.sectionLabels) || (data.sectionLabels.family is string && data.sectionLabels.family.size() <= 40)) &&
+        (!('tasks' in data.sectionLabels) || (data.sectionLabels.tasks is string && data.sectionLabels.tasks.size() <= 40)) &&
+        (!('communication' in data.sectionLabels) || (data.sectionLabels.communication is string && data.sectionLabels.communication.size() <= 40)) &&
+        (!('money' in data.sectionLabels) || (data.sectionLabels.money is string && data.sectionLabels.money.size() <= 40)) &&
+        (!('home' in data.sectionLabels) || (data.sectionLabels.home is string && data.sectionLabels.home.size() <= 40)) &&
+        data.customNotes is list &&
+        data.customNotes.size() <= 10 &&
+        (data.customNotes.size() == 0 || (data.customNotes[0] is string && data.customNotes[0].size() <= 200)) &&
+        isValidId(data.updatedByUid) &&
+        data.updatedByName is string && data.updatedByName.size() >= 1 && data.updatedByName.size() <= 80 &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidAnnouncement(data) {
+      return data.keys().hasAll([
+          'id', 'familyId', 'title', 'body', 'category',
+          'pinned', 'status', 'expiresAt', 'authorUid', 'authorName',
+          'createdAt', 'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'id', 'familyId', 'title', 'body', 'category',
+          'pinned', 'status', 'expiresAt', 'imageDataUrl', 'authorUid', 'authorName',
+          'createdAt', 'updatedAt'
+        ]) &&
+        isValidId(data.id) &&
+        isValidId(data.familyId) &&
+        data.title is string && data.title.size() >= 1 && data.title.size() <= 120 &&
+        data.body is string && data.body.size() >= 1 && data.body.size() <= 1000 &&
+        data.category in ['Важное', 'Напоминание', 'Покупки и быт', 'Праздник', 'Отдам / Найду', 'Другое'] &&
+        data.pinned is bool &&
+        data.status in ['active', 'archived'] &&
+        data.expiresAt is string && data.expiresAt.size() <= 20 &&
+        (!('imageDataUrl' in data) || isValidImageDataUrl(data.imageDataUrl)) &&
+        isValidId(data.authorUid) &&
+        data.authorName is string && data.authorName.size() >= 1 && data.authorName.size() <= 80 &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    // --- Collection Rules ---
+
+    // 1. Users (Owner-only, no list, no PII)
+    match /users/{userId} {
+      allow get: if isValidId(userId) && isOwner(userId);
+      allow list: if false;
+      allow create: if isEmailVerified() &&
+        isValidId(userId) &&
+        isOwner(userId) &&
+        isValidUserProfile(incoming()) &&
+        incoming().uid == request.auth.uid &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time;
+      allow update: if isEmailVerified() &&
+        isValidId(userId) &&
+        isOwner(userId) &&
+        isValidUserProfile(incoming()) &&
+        incoming().uid == existing().uid &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time &&
+        incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'activeFamilyId', 'updatedAt']);
+      allow delete: if false;
+    }
+
+    // 2. Family Invites (Exact lookup only, no list)
+    match /familyInvites/{inviteCode} {
+      allow get: if isSignedIn() && isValidInviteCode(inviteCode);
+      allow list: if false;
+      allow create: if isEmailVerified() &&
+        isValidInviteCode(inviteCode) &&
+        isValidFamilyInvite(incoming()) &&
+        incoming().code == inviteCode &&
+        incoming().ownerId == request.auth.uid &&
+        incoming().createdAt == request.time &&
+        existsAfter(/databases/$(database)/documents/families/$(incoming().familyId));
+      allow update: if isEmailVerified() &&
+        isValidInviteCode(inviteCode) &&
+        isValidFamilyInvite(incoming()) &&
+        existing().ownerId == request.auth.uid &&
+        incoming().code == existing().code &&
+        incoming().familyId == existing().familyId &&
+        incoming().ownerId == existing().ownerId &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().diff(existing()).affectedKeys().hasOnly(['familyName']);
+      allow delete: if isEmailVerified() &&
+        isValidInviteCode(inviteCode) &&
+        existing().ownerId == request.auth.uid;
+    }
+
+    // 3. Families Root
+    match /families/{familyId} {
+      allow get: if isValidId(familyId) && isFamilyMember(familyId);
+      allow list: if isSignedIn() && existing().ownerId == request.auth.uid;
+      allow create: if isEmailVerified() &&
+        isValidId(familyId) &&
+        isValidFamily(incoming()) &&
+        incoming().id == familyId &&
+        incoming().ownerId == request.auth.uid &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time &&
+        existsAfter(/databases/$(database)/documents/families/$(familyId)/members/$(request.auth.uid)) &&
+        existsAfter(/databases/$(database)/documents/familyInvites/$(incoming().inviteCode));
+      allow update: if isEmailVerified() &&
+        isValidId(familyId) &&
+        isValidFamily(incoming()) &&
+        isFamilyOwner(familyId) &&
+        incoming().id == existing().id &&
+        incoming().ownerId == existing().ownerId &&
+        incoming().inviteCode == existing().inviteCode &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time &&
+        incoming().diff(existing()).affectedKeys().hasOnly(['name', 'currency', 'updatedAt']);
+      allow delete: if isEmailVerified() && isValidId(familyId) && isFamilyOwner(familyId);
+
+      // 3a. Family Members (Authenticated accounts)
+      match /members/{memberUid} {
+        allow get: if isValidId(familyId) && isValidId(memberUid) && (isOwner(memberUid) || isFamilyMember(familyId));
+        allow list: if isValidId(familyId) && isFamilyMember(familyId) && existing().familyId == familyId;
+        allow create: if isEmailVerified() &&
+          isValidId(familyId) &&
+          isValidId(memberUid) &&
+          isOwner(memberUid) &&
+          isValidMemberAccount(incoming()) &&
+          incoming().uid == request.auth.uid &&
+          incoming().familyId == familyId &&
+          incoming().joinedAt == request.time &&
+          (
+            (
+              incoming().role == 'owner' &&
+              (!('familyRole' in incoming()) || incoming().familyRole in ['Создатель', 'Мама', 'Папа']) &&
+              getAfter(/databases/$(database)/documents/families/$(familyId)).data.ownerId == request.auth.uid &&
+              getAfter(/databases/$(database)/documents/families/$(familyId)).data.inviteCode == incoming().inviteCode
+            ) ||
+            (
+              incoming().role == 'member' &&
+              (!('familyRole' in incoming()) || incoming().familyRole in ['Ребёнок', 'Участник']) &&
+              exists(/databases/$(database)/documents/familyInvites/$(incoming().inviteCode)) &&
+              get(/databases/$(database)/documents/familyInvites/$(incoming().inviteCode)).data.familyId == familyId
+            )
+          );
+        allow update: if isEmailVerified() &&
+          isValidId(familyId) &&
+          isValidId(memberUid) &&
+          isFamilyMember(familyId) &&
+          isValidMemberAccount(incoming()) &&
+          incoming().uid == existing().uid &&
+          incoming().familyId == existing().familyId &&
+          incoming().role == existing().role &&
+          incoming().inviteCode == existing().inviteCode &&
+          incoming().joinedAt == existing().joinedAt &&
+          (
+            // Action: Update own display name
+            (
+              isOwner(memberUid) &&
+              incoming().diff(existing()).affectedKeys().hasOnly(['displayName'])
+            ) ||
+            // Action: Update own read watermarks and push notification preference
+            (
+              isOwner(memberUid) &&
+              incoming().diff(existing()).affectedKeys().hasOnly(['lastReadMessagesAt', 'lastReadEventsAt', 'lastReadTasksAt', 'lastReadBoardAt', 'lastReadNotificationsAt', 'pushEnabled']) &&
+              (!('lastReadMessagesAt' in incoming().diff(existing()).affectedKeys()) || incoming().lastReadMessagesAt == request.time) &&
+              (!('lastReadEventsAt' in incoming().diff(existing()).affectedKeys()) || incoming().lastReadEventsAt == request.time) &&
+              (!('lastReadTasksAt' in incoming().diff(existing()).affectedKeys()) || incoming().lastReadTasksAt == request.time) &&
+              (!('lastReadBoardAt' in incoming().diff(existing()).affectedKeys()) || incoming().lastReadBoardAt == request.time) &&
+              (!('lastReadNotificationsAt' in incoming().diff(existing()).affectedKeys()) || incoming().lastReadNotificationsAt == request.time)
+            ) ||
+            // Action: Group creator assigns or changes familyRole
+            (
+              isFamilyOwner(familyId) &&
+              incoming().diff(existing()).affectedKeys().hasOnly(['familyRole'])
+            )
+          );
+        allow delete: if isEmailVerified() &&
+          isValidId(familyId) &&
+          isValidId(memberUid) &&
+          (
+            (isOwner(memberUid) && existing().role != 'owner') ||
+            isFamilyOwner(familyId)
+          );
+      }
+
+      // 3a-bis. Family Activity Notifications (Immutable log for messages & calendar changes)
+      match /notifications/{notificationId} {
+        allow get: if isValidId(familyId) && isValidId(notificationId) && isFamilyMember(familyId);
+        allow list: if isValidId(familyId) && isFamilyMember(familyId) && existing().familyId == familyId;
+        allow create: if isEmailVerified() &&
+          isValidId(familyId) &&
+          isValidId(notificationId) &&
+          isValidNotification(incoming()) &&
+          incoming().id == notificationId &&
+          incoming().familyId == familyId &&
+          incoming().actorUid == request.auth.uid &&
+          incoming().createdAt == request.time &&
+          isFamilyMember(familyId);
+        allow update: if false;
+        allow delete: if isEmailVerified() &&
+          isValidId(familyId) &&
+          isValidId(notificationId) &&
+          isFamilyMember(familyId) &&
+          (existing().actorUid == request.auth.uid || isFamilyOwner(familyId));
+      }
+
+      // 3b. Family Roster Profiles
+      match /profiles/{profileId} {
+        allow get: if isValidId(familyId) && isValidId(profileId) && isFamilyMember(familyId);
+        allow list: if isValidId(familyId) && isFamilyMember(familyId) && existing().familyId == familyId;
+        allow create: if isEmailVerified() &&
+          isValidId(familyId) &&
+          isValidId(profileId) &&
+          isValidPersonProfile(incoming()) &&
+          incoming().id == profileId &&
+          incoming().familyId == familyId &&
+          incoming().createdBy == request.auth.uid &&
+          incoming().createdAt == request.time &&
+          incoming().updatedAt == request.time &&
+          isFamilyMember(familyId);
+        allow update: if isEmailVerified() &&
+          isValidId(familyId) &&
+          isValidId(profileId) &&
+          isValidPersonProfile(incoming()) &&
+          isFamilyMember(familyId) &&
+          incoming().id == existing().id &&
+          incoming().familyId == existing().familyId &&
+          incoming().createdBy == existing().createdBy &&
+          incoming().createdAt == existing().createdAt &&
+          incoming().updatedAt == request.time &&
+          incoming().diff(existing()).affectedKeys().hasOnly(['name', 'relation', 'birthDate', 'note', 'linkedUid', 'updatedAt']);
+        allow delete: if isEmailVerified() && isValidId(familyId) && isValidId(profileId) && isFamilyMember(familyId);
+      }
+
+      // 3c. Family Calendar Events
+      match /events/{eventId} {
+        allow get: if isValidId(familyId) && isValidId(eventId) && isFamilyMember(familyId);
+        allow list: if isValidId(familyId) && isFamilyMember(familyId) && existing().familyId == familyId;
+        allow create: if isEmailVerified() &&
+          isValidId(familyId) &&
+          isValidId(eventId) &&
+          isValidFamilyEvent(incoming()) &&
+          incoming().id == eventId &&
+          incoming().familyId == familyId &&
+          incoming().createdBy == request.auth.uid &&
+          incoming().createdAt == request.time &&
+          incoming().updatedAt == request.time &&
+          isFamilyMember(familyId);
+        allow update: if isEmailVerified() &&
+          isValidId(familyId) &&
+          isValidId(eventId) &&
+          isValidFamilyEvent(incoming()) &&
+          isFamilyMember(familyId) &&
+          incoming().id == existing().id &&
+          incoming().familyId == existing().familyId &&
+          incoming().createdBy == existing().createdBy &&
+          incoming().createdAt == existing().createdAt &&
+          incoming().updatedAt == request.time &&
+          (
+            incoming().diff(existing()).affectedKeys().hasOnly(['completed', 'updatedAt']) ||
+            incoming().diff(existing()).affectedKeys().hasOnly(['title', 'date', 'time', 'category', 'assigneeName', 'completed', 'updatedAt'])
+          );
+        allow delete: if isEmailVerified() && isValidId(familyId) && isValidId(eventId) && isFamilyMember(familyId);
+      }
+
+      // 3d. Family Messages (Communication)
+      match /messages/{messageId} {
+        allow get: if isValidId(familyId) && isValidId(messageId) && isFamilyMember(familyId);
+        allow list: if isValidId(familyId) && isFamilyMember(familyId) && existing().familyId == familyId;
+        allow create: if isEmailVerified() &&
+          isValidId(familyId) &&
+          isValidId(messageId) &&
+          isValidMessage(incoming()) &&
+          incoming().id == messageId &&
+          incoming().familyId == familyId &&
+          incoming().authorUid == request.auth.uid &&
+          incoming().createdAt == request.time &&
+          incoming().updatedAt == request.time &&
+          isFamilyMember(familyId);
+        allow update: if isEmailVerified() &&
+          isValidId(familyId) &&
+          isValidId(messageId) &&
+          isValidMessage(incoming()) &&
+          isFamilyMember(familyId) &&
+          incoming().id == existing().id &&
+          incoming().familyId == existing().familyId &&
+          incoming().authorUid == existing().authorUid &&
+          incoming().authorName == existing().authorName &&
+          incoming().createdAt == existing().createdAt &&
+          incoming().updatedAt == request.time &&
+          (
+            incoming().diff(existing()).affectedKeys().hasOnly(['pinned', 'updatedAt']) ||
+            (existing().authorUid == request.auth.uid && incoming().diff(existing()).affectedKeys().hasOnly(['text', 'topic', 'imageDataUrl', 'updatedAt']))
+          );
+        allow delete: if isEmailVerified() &&
+          isValidId(familyId) &&
+          isValidId(messageId) &&
+          isFamilyMember(familyId) &&
+          (existing().authorUid == request.auth.uid || isFamilyOwner(familyId));
+      }
+
+      // 3e. Money Transactions
+      match /transactions/{transactionId} {
+        allow get: if isValidId(familyId) && isValidId(transactionId) && isFamilyMember(familyId);
+        allow list: if isValidId(familyId) && isFamilyMember(familyId) && existing().familyId == familyId;
+        allow create: if isEmailVerified() &&
+          isValidId(familyId) &&
+          isValidId(transactionId) &&
+          isValidTransaction(incoming()) &&
+          incoming().id == transactionId &&
+          incoming().familyId == familyId &&
+          incoming().authorUid == request.auth.uid &&
+          incoming().createdAt == request.time &&
+          incoming().updatedAt == request.time &&
+          isFamilyMember(familyId);
+        allow update: if isEmailVerified() &&
+          isValidId(familyId) &&
+          isValidId(transactionId) &&
+          isValidTransaction(incoming()) &&
+          isFamilyMember(familyId) &&
+          (existing().authorUid == request.auth.uid || isFamilyOwner(familyId)) &&
+          incoming().id == existing().id &&
+          incoming().familyId == existing().familyId &&
+          incoming().authorUid == existing().authorUid &&
+          incoming().authorName == existing().authorName &&
+          incoming().createdAt == existing().createdAt &&
+          incoming().updatedAt == request.time &&
+          incoming().diff(existing()).affectedKeys().hasOnly(['type', 'amount', 'category', 'title', 'date', 'updatedAt']);
+        allow delete: if isEmailVerified() &&
+          isValidId(familyId) &&
+          isValidId(transactionId) &&
+          isFamilyMember(familyId) &&
+          (existing().authorUid == request.auth.uid || isFamilyOwner(familyId));
+      }
+
+      // 3f. Savings Goals (Terminal state locking when status == 'completed')
+      match /goals/{goalId} {
+        allow get: if isValidId(familyId) && isValidId(goalId) && isFamilyMember(familyId);
+        allow list: if isValidId(familyId) && isFamilyMember(familyId) && existing().familyId == familyId;
+        allow create: if isEmailVerified() &&
+          isValidId(familyId) &&
+          isValidId(goalId) &&
+          isValidGoal(incoming()) &&
+          incoming().id == goalId &&
+          incoming().familyId == familyId &&
+          incoming().createdBy == request.auth.uid &&
+          incoming().createdAt == request.time &&
+          incoming().updatedAt == request.time &&
+          isFamilyMember(familyId);
+        allow update: if isEmailVerified() &&
+          isValidId(familyId) &&
+          isValidId(goalId) &&
+          isValidGoal(incoming()) &&
+          isFamilyMember(familyId) &&
+          incoming().id == existing().id &&
+          incoming().familyId == existing().familyId &&
+          incoming().createdBy == existing().createdBy &&
+          incoming().createdAt == existing().createdAt &&
+          incoming().updatedAt == request.time &&
+          (existing().status != 'completed' || isFamilyOwner(familyId)) &&
+          (
+            incoming().diff(existing()).affectedKeys().hasOnly(['currentAmount', 'status', 'updatedAt']) ||
+            incoming().diff(existing()).affectedKeys().hasOnly(['title', 'targetAmount', 'currentAmount', 'deadline', 'status', 'updatedAt'])
+          );
+        allow delete: if isEmailVerified() && isValidId(familyId) && isValidId(goalId) && isFamilyMember(familyId);
+      }
+
+      // 3g. Shared Shopping List
+      match /shopping/{itemId} {
+        allow get: if isValidId(familyId) && isValidId(itemId) && isFamilyMember(familyId);
+        allow list: if isValidId(familyId) && isFamilyMember(familyId) && existing().familyId == familyId;
+        allow create: if isEmailVerified() &&
+          isValidId(familyId) &&
+          isValidId(itemId) &&
+          isValidShoppingItem(incoming()) &&
+          incoming().id == itemId &&
+          incoming().familyId == familyId &&
+          incoming().addedByUid == request.auth.uid &&
+          incoming().createdAt == request.time &&
+          incoming().updatedAt == request.time &&
+          isFamilyMember(familyId);
+        allow update: if isEmailVerified() &&
+          isValidId(familyId) &&
+          isValidId(itemId) &&
+          isValidShoppingItem(incoming()) &&
+          isFamilyMember(familyId) &&
+          incoming().id == existing().id &&
+          incoming().familyId == existing().familyId &&
+          incoming().addedByUid == existing().addedByUid &&
+          incoming().addedByName == existing().addedByName &&
+          incoming().createdAt == existing().createdAt &&
+          incoming().updatedAt == request.time &&
+          (
+            incoming().diff(existing()).affectedKeys().hasOnly(['checked', 'updatedAt']) ||
+            incoming().diff(existing()).affectedKeys().hasOnly(['name', 'quantity', 'category', 'checked', 'updatedAt'])
+          );
+        allow delete: if isEmailVerified() && isValidId(familyId) && isValidId(itemId) && isFamilyMember(familyId);
+      }
+
+      // 3h. Home Tasks, Chores & Utility Bills
+      match /tasks/{taskId} {
+        allow get: if isValidId(familyId) && isValidId(taskId) && isFamilyMember(familyId);
+        allow list: if isValidId(familyId) && isFamilyMember(familyId) && existing().familyId == familyId;
+        allow create: if isEmailVerified() &&
+          isValidId(familyId) &&
+          isValidId(taskId) &&
+          isValidHomeTask(incoming()) &&
+          incoming().id == taskId &&
+          incoming().familyId == familyId &&
+          incoming().createdBy == request.auth.uid &&
+          incoming().createdAt == request.time &&
+          incoming().updatedAt == request.time &&
+          isFamilyMember(familyId);
+        allow update: if isEmailVerified() &&
+          isValidId(familyId) &&
+          isValidId(taskId) &&
+          isValidHomeTask(incoming()) &&
+          isFamilyMember(familyId) &&
+          incoming().id == existing().id &&
+          incoming().familyId == existing().familyId &&
+          incoming().createdBy == existing().createdBy &&
+          incoming().createdAt == existing().createdAt &&
+          incoming().updatedAt == request.time &&
+          (
+            incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updatedAt']) ||
+            incoming().diff(existing()).affectedKeys().hasOnly(['title', 'area', 'assigneeName', 'dueDate', 'recurrence', 'status', 'amount', 'updatedAt'])
+          );
+        allow delete: if isEmailVerified() && isValidId(familyId) && isValidId(taskId) && isFamilyMember(familyId);
+      }
+
+      // 3i. Paid Child Tasks (Only Mom/Dad/Owner can create, approve/reject, or close)
+      match /childTasks/{taskId} {
+        allow get: if isValidId(familyId) && isValidId(taskId) && isFamilyMember(familyId);
+        allow list: if isValidId(familyId) && isFamilyMember(familyId) && existing().familyId == familyId;
+        allow create: if isEmailVerified() &&
+          isValidId(familyId) &&
+          isValidId(taskId) &&
+          isValidChildTask(incoming()) &&
+          isTaskManager(familyId) &&
+          incoming().id == taskId &&
+          incoming().familyId == familyId &&
+          incoming().createdBy == request.auth.uid &&
+          incoming().status == 'pending' &&
+          incoming().proofMessage == '' &&
+          incoming().proofPhotoDataUrl == '' &&
+          incoming().parentFeedback == '' &&
+          (!('feedbackPhotoDataUrl' in incoming()) || incoming().feedbackPhotoDataUrl == '') &&
+          !('approvedAt' in incoming()) &&
+          !('closedAt' in incoming()) &&
+          incoming().createdAt == request.time &&
+          incoming().updatedAt == request.time;
+        allow update: if isEmailVerified() &&
+          isValidId(familyId) &&
+          isValidId(taskId) &&
+          isValidChildTask(incoming()) &&
+          isFamilyMember(familyId) &&
+          existing().status != 'closed' &&
+          incoming().id == existing().id &&
+          incoming().familyId == existing().familyId &&
+          incoming().createdBy == existing().createdBy &&
+          incoming().createdByName == existing().createdByName &&
+          incoming().createdAt == existing().createdAt &&
+          incoming().updatedAt == request.time &&
+          (
+            // Action 1: Child says Да (in_progress) or Нет (declined)
+            (
+              (existing().assigneeUid == '' || existing().assigneeUid == request.auth.uid) &&
+              existing().status == 'pending' &&
+              incoming().status in ['in_progress', 'declined'] &&
+              incoming().respondedByUid == request.auth.uid &&
+              incoming().diff(existing()).affectedKeys().hasOnly(['status', 'respondedByUid', 'respondedByName', 'updatedAt'])
+            ) ||
+            // Action 2: Child clicks Всё with message & photo proof
+            (
+              (existing().assigneeUid == '' || existing().assigneeUid == request.auth.uid) &&
+              existing().status in ['in_progress', 'needs_fix'] &&
+              incoming().status == 'submitted' &&
+              incoming().respondedByUid == request.auth.uid &&
+              incoming().proofMessage.size() >= 1 &&
+              incoming().proofPhotoDataUrl.size() >= 20 &&
+              incoming().diff(existing()).affectedKeys().hasOnly(['status', 'proofMessage', 'proofPhotoDataUrl', 'respondedByUid', 'respondedByName', 'updatedAt'])
+            ) ||
+            // Action 3: Parent/Manager clicks Сделано (approved -> payout in 10 min)
+            (
+              isTaskManager(familyId) &&
+              existing().status == 'submitted' &&
+              incoming().status == 'approved' &&
+              incoming().approvedAt == request.time &&
+              incoming().diff(existing()).affectedKeys().hasOnly(['status', 'parentFeedback', 'feedbackPhotoDataUrl', 'approvedAt', 'updatedAt'])
+            ) ||
+            // Action 4: Parent/Manager clicks Нет on review (needs_fix)
+            (
+              isTaskManager(familyId) &&
+              existing().status == 'submitted' &&
+              incoming().status == 'needs_fix' &&
+              incoming().diff(existing()).affectedKeys().hasOnly(['status', 'parentFeedback', 'feedbackPhotoDataUrl', 'updatedAt'])
+            ) ||
+            // Action 5: Parent/Manager clicks Прекратить задачу after sending money
+            (
+              isTaskManager(familyId) &&
+              existing().status == 'approved' &&
+              incoming().status == 'closed' &&
+              incoming().closedAt == request.time &&
+              incoming().diff(existing()).affectedKeys().hasOnly(['status', 'closedAt', 'updatedAt'])
+            )
+          );
+        allow delete: if isEmailVerified() &&
+          isValidId(familyId) &&
+          isValidId(taskId) &&
+          isTaskManager(familyId);
+      }
+
+      // 3j. Shared Live App Appearance Settings (Real-time UI customization for all family members)
+      match /settings/{settingId} {
+        allow get: if isValidId(familyId) && settingId == 'appearance' && isFamilyMember(familyId);
+        allow list: if false;
+        allow create: if isEmailVerified() &&
+          isValidId(familyId) &&
+          settingId == 'appearance' &&
+          isValidAppAppearance(incoming()) &&
+          incoming().familyId == familyId &&
+          incoming().updatedByUid == request.auth.uid &&
+          incoming().updatedAt == request.time &&
+          isFamilyMember(familyId);
+        allow update: if isEmailVerified() &&
+          isValidId(familyId) &&
+          settingId == 'appearance' &&
+          isValidAppAppearance(incoming()) &&
+          isFamilyMember(familyId) &&
+          incoming().id == existing().id &&
+          incoming().familyId == existing().familyId &&
+          incoming().updatedByUid == request.auth.uid &&
+          incoming().updatedAt == request.time &&
+          incoming().diff(existing()).affectedKeys().hasOnly([
+            'brandName', 'accentTheme', 'surfaceMode',
+            'bannerTitle', 'bannerSubtitle', 'liveAnnouncement',
+            'hiddenSections', 'sectionLabels', 'customNotes',
+            'updatedByUid', 'updatedByName', 'updatedAt'
+          ]);
+        allow delete: if isEmailVerified() &&
+          isValidId(familyId) &&
+          settingId == 'appearance' &&
+          isFamilyOwner(familyId);
+      }
+
+      // 3k. Family Bulletin Board Announcements
+      match /announcements/{announcementId} {
+        allow get: if isValidId(familyId) && isValidId(announcementId) && isFamilyMember(familyId);
+        allow list: if isValidId(familyId) && isFamilyMember(familyId) && existing().familyId == familyId;
+        allow create: if isEmailVerified() &&
+          isValidId(familyId) &&
+          isValidId(announcementId) &&
+          isValidAnnouncement(incoming()) &&
+          incoming().id == announcementId &&
+          incoming().familyId == familyId &&
+          incoming().authorUid == request.auth.uid &&
+          incoming().createdAt == request.time &&
+          incoming().updatedAt == request.time &&
+          isFamilyMember(familyId);
+        allow update: if isEmailVerified() &&
+          isValidId(familyId) &&
+          isValidId(announcementId) &&
+          isValidAnnouncement(incoming()) &&
+          isFamilyMember(familyId) &&
+          incoming().id == existing().id &&
+          incoming().familyId == existing().familyId &&
+          incoming().authorUid == existing().authorUid &&
+          incoming().authorName == existing().authorName &&
+          incoming().createdAt == existing().createdAt &&
+          incoming().updatedAt == request.time &&
+          (
+            incoming().diff(existing()).affectedKeys().hasOnly(['pinned', 'status', 'updatedAt']) ||
+            (
+              (existing().authorUid == request.auth.uid || isFamilyOwner(familyId)) &&
+              incoming().diff(existing()).affectedKeys().hasOnly(['title', 'body', 'category', 'pinned', 'status', 'expiresAt', 'imageDataUrl', 'updatedAt'])
+            )
+          );
+        allow delete: if isEmailVerified() &&
+          isValidId(familyId) &&
+          isValidId(announcementId) &&
+          isFamilyMember(familyId) &&
+          (existing().authorUid == request.auth.uid || isFamilyOwner(familyId));
+      }
+    }
+  }
+}

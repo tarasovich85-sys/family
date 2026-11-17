@@ -1,0 +1,92 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --font-display: 'Manrope', -apple-system, BlinkMacSystemFont, sans-serif;
+    --font-sans: 'Golos Text', -apple-system, BlinkMacSystemFont, sans-serif;
+    --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
+  }
+
+  html {
+    font-family: var(--font-sans);
+    scroll-behavior: smooth;
+  }
+
+  h1, h2, h3, .font-display {
+    font-family: var(--font-display);
+    text-wrap: balance;
+  }
+
+  .font-mono, .tabular-nums {
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+@keyframes garland-twinkle-a {
+  0%, 100% {
+    opacity: 1;
+    filter: drop-shadow(0 0 6px currentColor);
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.45;
+    filter: drop-shadow(0 0 1px currentColor);
+    transform: scale(0.92);
+  }
+}
+
+@keyframes garland-twinkle-b {
+  0%, 100% {
+    opacity: 0.5;
+    filter: drop-shadow(0 0 1px currentColor);
+    transform: scale(0.92);
+  }
+  50% {
+    opacity: 1;
+    filter: drop-shadow(0 0 7px currentColor);
+    transform: scale(1.04);
+  }
+}
+
+@keyframes ny-snowfall {
+  0% {
+    transform: translate3d(0, -10vh, 0) rotate(0deg);
+    opacity: 0;
+  }
+  12% {
+    opacity: 0.85;
+  }
+  88% {
+    opacity: 0.75;
+  }
+  100% {
+    transform: translate3d(24px, 108vh, 0) rotate(220deg);
+    opacity: 0;
+  }
+}
+
+.ny-bulb-a {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: garland-twinkle-a 2.1s ease-in-out infinite;
+}
+
+.ny-bulb-b {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: garland-twinkle-b 2.4s ease-in-out infinite;
+}
+
+.ny-snowflake {
+  animation-name: ny-snowfall;
+  animation-timing-function: linear;
+  animation-iteration-count: infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ny-bulb-a,
+  .ny-bulb-b,
+  .ny-snowflake {
+    animation: none !important;
+  }
+}
